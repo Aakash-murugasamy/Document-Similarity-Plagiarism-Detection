@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Document Similarity / Plagiarism Detector</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f7f9fc;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+
+    h1 {
+      text-align: center;
+      color: #2b3e50;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 30px auto;
+      background: #fff;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    textarea {
+      width: 100%;
+      height: 130px;
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 15px;
+      resize: vertical;
+    }
+
+    .btn {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+      margin-top: 10px;
+    }
+
+    .btn:hover {
+      background: #0056b3;
+    }
+
+    .result {
+      margin-top: 25px;
+      padding: 20px;
+      background: #f0f4f8;
+      border-radius: 8px;
+      border: 1px solid #d0d8e0;
+    }
+
+    .highlight {
+      background: yellow;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .score {
+      font-weight: bold;
+    }
+
+    .green {
+      color: #28a745;
+    }
+
+    .red {
+      color: #dc3545;
+    }
+
+    .thresholds {
+      display: flex;
+      gap: 20px;
+      margin-top: 10px;
+    }
+
+    .thresholds label {
+      font-size: 14px;
+    }
+
+    input[type="number"] {
+      width: 80px;
+      padding: 4px;
+    }
+
+    .upload-section {
+      margin: 10px 0;
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      font-size: 13px;
+      color: #777;
+    }
+  </style>
+</head>
+<body>
+  <h1>📄 Document Similarity / Plagiarism Detector</h1>
+  <div class="container">
+    <label><strong>Document A:</strong></label>
+    <textarea id="docA" placeholder="Paste or upload first document..."></textarea>
+    <div class="upload-section">
+      <input type="file" id="fileA" accept=".txt">
+    </div>
+
+    <label><strong>Document B:</strong></label>
+    <textarea id="docB" placeholder="Paste or upload second document..."></textarea>
+    <div class="upload-section">
+      <input type="file" id="fileB" accept=".txt">
+    </div>
+
+    <div class="thresholds">
+      <label>TF-IDF Threshold:
+        <input type="number" id="tfidfThresh" step="0.01" value="0.65">
+      </label>
+      <label>SBERT Threshold:
+        <input type="number" id="sbertThresh" step="0.01" value="0.7">
+      </label>
+    </div>
+
+    <button class="btn" onclick="compareDocs()">Compare</button>
+
+    <div id="result" class="result" style="display:none;"></div>
+  </div>
+
+  <footer>© 2025 Document Similarity Project | Flask + Vanilla JS</footer>
+
+  <script>
+    async function readFile(input, textareaId) {
+      const file = input.files[0];
+      if (file) {
+        const text = await file.text();
+        document.getElementById(textareaId).value = text;
+      }
+    }
+
+    document.getElementById('fileA').addEventListener('change', e => readFile(e.target, 'docA'));
+    document.getElementById('fileB').addEventListener('change', e => readFile(e.target, 'docB'));
+
+    async function compareDocs() {
+      const a = document.getElementById('docA').value.trim();
+      const b = document.getElementById('docB').value.trim();
+      const tfidfThresh = parseFloat(document.getElementById('tfidfThresh').value);
+      const sbertThresh = parseFloat(document.getElementById('sbertThresh').value);
+
+      if (!a || !b) {
+        alert("Please provide both documents!");
+        return;
+      }
+
+      const resultDiv = document.getElementById('result');
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = "⏳ Comparing documents... please wait.";
+
+      try {
+        const res = await fetch('http://localhost:5000/api/compare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            a, b,
+            thresholds: { tfidf: tfidfThresh, sbert: sbertThresh }
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          resultDiv.innerHTML = `<span class="red">${data.error}</span>`;
+          return;
+        }
+
+        const tfidfColor = data.tfidf_flag ? 'red' : 'green';
+        const sbertColor = data.sbert_flag ? 'red' : 'green';
+        const finalVerdict = data.final_flag ? 
+          '<span class="red">⚠️ Potential Plagiarism Detected</span>' :
+          '<span class="green">✅ Documents appear distinct</span>';
+
+        let matchHtml = '';
+        if (data.ngram_matches.length > 0) {
+          matchHtml += '<h3>Overlapping N-Grams (evidence):</h3><ul>';
+          data.ngram_matches.slice(0, 10).forEach(m => {
+            matchHtml += `<li><code>${m.text}</code> <small>(n=${m.n})</small></li>`;
+          });
+          matchHtml += '</ul>';
+        } else {
+          matchHtml = '<p>No significant overlaps found.</p>';
+        }
+
+        resultDiv.innerHTML = `
+          <h2>Results:</h2>
+          <p>TF–IDF Similarity: <span class="score ${tfidfColor}">${data.tfidf_score}</span></p>
+          <p>SBERT Similarity: <span class="score ${sbertColor}">${data.sbert_score}</span></p>
+          <p><strong>Final Decision:</strong> ${finalVerdict}</p>
+          ${matchHtml}
+        `;
+
+      } catch (err) {
+        resultDiv.innerHTML = `<span class="red">Error connecting to backend: ${err}</span>`;
+      }
+    }
+  </script>
+</body>
+</html>
